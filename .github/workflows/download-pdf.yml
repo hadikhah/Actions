@@ -1,0 +1,20 @@
+name: Download Mendelssohn PDF
+
+on:
+  workflow_dispatch:    # Allows you to run it manually from GitHub UI
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download PDF using curl
+        run: |
+          curl -L -o "Mendelssohn_Concerto_in_E_Minor.pdf" \
+          "https://www.mainly4strings.co.uk/mainstreammusic-org-uk/_img/pdf/Mendelssohn_Concerto_in_E_Minor-479.pdf"
+
+      - name: Upload PDF as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mendelssohn-violin-concerto
+          path: Mendelssohn_Concerto_in_E_Minor.pdf
+          retention-days: 7    # You have 7 days to download it
