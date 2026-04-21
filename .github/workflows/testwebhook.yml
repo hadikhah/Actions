@@ -11,7 +11,7 @@ jobs:
         id: webhook
         run: |
           # Create a mock Bale update payload (a /start message from user 123456)
-          cat > payload.json << 'EOF'
+          cat > payload.json << EOF
           {
             "update_id": 999999,
             "message": {
