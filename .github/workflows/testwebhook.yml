@@ -1,0 +1,81 @@
+name: Test Cloudflare Worker Webhook
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send mock /start update to Worker
+        id: webhook
+        run: |
+          # Create a mock Bale update payload (a /start message from user 123456)
+          cat > payload.json << 'EOF'
+          {
+            "update_id": 999999,
+            "message": {
+              "message_id": 1,
+              "from": {
+                "id": 123456,
+                "is_bot": false,
+                "first_name": "Test",
+                "username": "testuser"
+              },
+              "chat": {
+                "id": 123456,
+                "first_name": "Test",
+                "username": "testuser",
+                "type": "private"
+              },
+              "date": $(date +%s),
+              "text": "/start"
+            }
+          }
+          EOF
+
+          # Send POST to Worker webhook
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://bale-yt-bot.mahadikhah1.workers.dev/webhook" \
+            -H "Content-Type: application/json" \
+            -d @payload.json)
+
+          # Separate body and status code
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response Body: $BODY"
+
+          # Save for artifact
+          echo "$BODY" > response.json
+          echo "$HTTP_CODE" > http_code.txt
+
+          # Fail if not 200
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Webhook returned non-200 status: $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Upload response artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webhook-test-results
+          path: |
+            response.json
+            http_code.txt
+            payload.json
+          retention-days: 7
+
+      - name: Check pending updates on Bale (optional)
+        if: always()
+        env:
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+        run: |
+          echo "Fetching pending updates from Bale..."
+          curl -s "https://tapi.bale.ai/bot${BALE_BOT_TOKEN}/getUpdates" | jq '.' > bale_updates.json
+          PENDING=$(jq '.result | length' bale_updates.json)
+          echo "Pending updates count: $PENDING"
+          cat bale_updates.json
+        continue-on-error: true
