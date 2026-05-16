@@ -1,20 +1,92 @@
-name: Download Mendelssohn PDF
+name: Download File from URL
 
 on:
-  workflow_dispatch:    # Allows you to run it manually from GitHub UI
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'URL of the file to download (PDF, image, or ZIP)'
+        required: true
+        type: string
+        default: 'https://www.mainly4strings.co.uk/mainstreammusic-org-uk/_img/pdf/Mendelssohn_Concerto_in_E_Minor-479.pdf'
 
 jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Download PDF using curl
+      - name: Validate and download file
+        id: download
         run: |
-          curl -L -o "Mendelssohn_Concerto_in_E_Minor.pdf" \
-          "https://www.mainly4strings.co.uk/mainstreammusic-org-uk/_img/pdf/Mendelssohn_Concerto_in_E_Minor-479.pdf"
+          URL="${{ github.event.inputs.url }}"
 
-      - name: Upload PDF as artifact
+          # Define allowed content types
+          ALLOWED_TYPES="application/pdf image/jpeg image/png image/gif image/webp application/zip"
+          ALLOWED_EXTENSIONS="pdf jpg jpeg png gif webp zip"
+
+          echo "Checking URL: $URL"
+
+          # First, try to get the content type without downloading the whole file
+          CONTENT_TYPE=$(curl -sL --head "$URL" | grep -i content-type | head -1 | cut -d':' -f2- | tr -d ' ' | cut -d';' -f1)
+
+          if [ -z "$CONTENT_TYPE" ]; then
+            echo "Could not determine content type. Falling back to URL extension check."
+          fi
+
+          # Check if content type is allowed
+          IS_ALLOWED=0
+          for type in $ALLOWED_TYPES; do
+            if [ "$CONTENT_TYPE" = "$type" ]; then
+              IS_ALLOWED=1
+              break
+            fi
+          done
+
+          # If content type not allowed or unknown, check file extension
+          if [ $IS_ALLOWED -eq 0 ]; then
+            # Extract extension from URL (ignoring query parameters)
+            EXT=$(basename "$URL" | sed 's/\?.*//' | rev | cut -d'.' -f1 | rev | tr '[:upper:]' '[:lower:]')
+            for allowed in $ALLOWED_EXTENSIONS; do
+              if [ "$EXT" = "$allowed" ]; then
+                IS_ALLOWED=1
+                break
+              fi
+            done
+          fi
+
+          if [ $IS_ALLOWED -eq 0 ]; then
+            echo "The URL does not point to a downloadable file (PDF, image, or ZIP)."
+            echo "Detected content type: ${CONTENT_TYPE:-unknown}"
+            exit 1
+          fi
+
+          # Extract filename from URL or Content-Disposition
+          # First try Content-Disposition header
+          FILENAME=$(curl -sL --head "$URL" | grep -i content-disposition | grep -o 'filename="[^"]*"' | cut -d'"' -f2)
+          if [ -z "$FILENAME" ]; then
+            # Fallback: take last part of URL path
+            FILENAME=$(basename "$URL" | sed 's/\?.*//')
+            # If no filename or missing extension, generate one based on content type
+            if [ -z "$FILENAME" ] || [[ "$FILENAME" != *.* ]]; then
+              case "$CONTENT_TYPE" in
+                application/pdf) FILENAME="downloaded_file.pdf" ;;
+                image/jpeg) FILENAME="downloaded_file.jpg" ;;
+                image/png) FILENAME="downloaded_file.png" ;;
+                image/gif) FILENAME="downloaded_file.gif" ;;
+                image/webp) FILENAME="downloaded_file.webp" ;;
+                application/zip) FILENAME="downloaded_file.zip" ;;
+                *) FILENAME="downloaded_file.bin" ;;
+              esac
+            fi
+          fi
+
+          echo "Downloading as: $FILENAME"
+          curl -L -o "$FILENAME" "$URL"
+
+          # Set output for artifact step
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+
+      - name: Upload file as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mendelssohn-violin-concerto
-          path: Mendelssohn_Concerto_in_E_Minor.pdf
-          retention-days: 7    # You have 7 days to download it
+          name: downloaded-file
+          path: ${{ steps.download.outputs.filename }}
+          retention-days: 7
